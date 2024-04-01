@@ -75,6 +75,14 @@ class _Metric:
                 for graph_index, hashes_list in edge_hashes.items()
             }
             flat_edge_labels = [lbl for lbls in edge_labels for lbl in lbls]
+            # filter out the 0 labels, since we use +1 and -1 labels for pos
+            # and neg edges, respectively
+            nonzero_edge_indices = [i for i, lbl in enumerate(flat_edge_labels) if lbl != 0]
+            flat_edge_hashes = {
+                graph_index: [flat_edge_hashes[graph_index][i] for i in nonzero_edge_indices]
+                for graph_index in flat_edge_hashes
+            }
+            flat_edge_labels = [flat_edge_labels[i] for i in nonzero_edge_indices]
             return self._evaluator(graphs, flat_edge_hashes, flat_edge_labels)
 
 

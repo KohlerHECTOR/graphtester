@@ -53,11 +53,9 @@ else:
     ]
 
 datasets_to_evaluate = [
-    "PascalVOC-SP",
-    "COCO-SP",
-    "PCQM-Contact",
-    "Peptides-func",
-    "Peptides-struct",
+    "ogbl-vessel",
+    "ogbl-collab",
+    "ogbl-ddi",
 ]
 
 def select_metric(dataset: Dataset) -> _Metric:

@@ -118,10 +118,12 @@ DATASETS = {
         "ogbn-products", **ogb_param
     ),
     # link prediction
-    # "ogbl-collab": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-collab", **ogb_param), # noqa: E501
-    # "ogbl-ddi": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-ddi", **ogb_param),
-    # "ogbl-ppa": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-ppa", **ogb_param),
-    # "ogbl-citation2": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-citation2", **ogb_param), # noqa: E501
+    "ogbl-collab": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-collab", **ogb_param), # noqa: E501
+    "ogbl-ddi": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-ddi", **ogb_param),
+    "ogbl-biokg": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-biokg", **ogb_param),
+    "ogbl-ppa": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-ppa", **ogb_param),
+    "ogbl-citation2": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-citation2", **ogb_param), # noqa: E501
+    "ogbl-vessel": lambda ogbl: ogbl.DglLinkPropPredDataset("ogbl-vessel", **ogb_param),
     # graph regression
     "ogbg-molesol": lambda ogbg: ogbg.DglGraphPropPredDataset(
         "ogbg-molesol", **ogb_param

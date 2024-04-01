@@ -124,18 +124,31 @@ class Dataset:
             # we have edge indices, so we need to set the type of these edges
             # we do this by adding these edges to the graph, then removing duplicates
             # by calling to_simple
-            # FIXME: neg-pos edge handling, currently we cannot distinguish
-            #        non-given edges and assign negative
+            ekeys = first_graph.edata.keys()
+            pos_data = {
+                "e_type": F.zeros_like(pos_edges[:, 0]).float() + 1,
+                **{k: F.zeros_like(
+                    first_graph.edata[k][: pos_edges.shape[0]]
+                ) for k in ekeys}
+            }
+            neg_data = {
+                "e_type": F.zeros_like(neg_edges[:, 0]).float() - 1,
+                **{k: F.zeros_like(
+                    first_graph.edata[k][: neg_edges.shape[0]]
+                ) for k in ekeys}
+            }
             first_graph.add_edges(
                 pos_edges[:, 0],
                 pos_edges[:, 1],
-                data={"e_type": F.zeros_like(pos_edges[:, 0]) + 1},
+                data=pos_data,
             )
             first_graph.add_edges(
                 neg_edges[:, 0],
                 neg_edges[:, 1],
-                data={"e_type": F.zeros_like(neg_edges[:, 0])},
+                data=neg_data,
             )
+            for key in first_graph.edata.keys():
+                first_graph.edata[key] = first_graph.edata[key].float()
             first_graph = dgl.to_simple(
                 first_graph,
                 return_counts=None,
@@ -144,7 +157,8 @@ class Dataset:
                 copy_edata=True,
                 aggregator="sum",
             )
-            dgl_dataset.__getitem__ = lambda i: dgl_dataset.graph[i]
+            assert len(dgl_dataset) == 1, "Only single graph datasets supported for edge prediction"
+            dgl_dataset.__getitem__ = lambda _: first_graph
         else:
             with_graph_labels = isinstance(dgl_dataset[0], tuple)
             first_graph = dgl_dataset[0][0] if with_graph_labels else dgl_dataset[0]
@@ -200,7 +214,15 @@ class Dataset:
         graphs, _labels, _node_labels, _edge_labels = zip(
             *[
                 (
-                    ig.Graph.from_networkx(gget(i).to_networkx(node_attr, edge_attr)),
+                    ig.Graph(
+                        n=gget(i).number_of_nodes(),
+                        edges=list(zip(*gget(i).edges())),
+                        directed=True,
+                        vertex_attrs={
+                            k: gget(i).ndata[k].tolist() for k in node_attr
+                        },
+                        edge_attrs={k: gget(i).edata[k].tolist() for k in edge_attr},
+                    ),
                     lget(i),
                     nlget(i),
                     elget(i),
@@ -216,7 +238,7 @@ class Dataset:
             edge_labels = list(_edge_labels)
 
         graphs = list(graphs)
-        graphs = cls._clean_graphs(graphs, edge_label_attr)
+        graphs = cls._clean_graphs(graphs, [edge_label_attr])
 
         return cls(
             graphs,
