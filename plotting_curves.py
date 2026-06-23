@@ -14,19 +14,19 @@ def _draw_predictor_lines(ax, key_prefix, legend=False):
     zero_key = f"{key_prefix}|0-layer"
     if zero_key in _pred_mse:
         ax.axhline(
-            float(_pred_mse[zero_key]), color='black', linestyle='--', linewidth=2,
-            label=r'$\mathcal{V}_{\mathcal{G}} \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None,
+            float(np.mean(_pred_mse[zero_key])), color='black', linestyle='--', linewidth=2,
+            label=r'$|\mathcal{V}_{\mathcal{G}}| \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None,
         )
     sd_key = f"{key_prefix}|size+depth"
     if sd_key in _pred_mse:
         ax.axhline(
-            float(_pred_mse[sd_key]), color='green', linestyle=':', linewidth=2,
-            label=r'$(\mathcal{V}, \mathcal{E})_{\mathcal{G}} \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None,
+            float(np.mean(_pred_mse[sd_key])), color='green', linestyle=':', linewidth=2,
+            label=r'$|(\mathcal{V}_{\mathcal{G}}|, |\mathcal{E}_{\mathcal{G}}|) \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None,
         )
     key = f"{key_prefix}|x"
     if key in _pred_mse:
         ax.axhline(
-            np.clip(float(_pred_mse[key]), 1e-16, 1), color='magenta', linestyle='-.', linewidth=2,
+            np.clip((float(np.mean(_pred_mse[key]))), 1e-16, 1), color='magenta', linestyle='-.', linewidth=2,
             label=(r'$x_{\mathcal{G}} \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None),
         )
 
@@ -61,7 +61,7 @@ for i in range(n_steps):
 
 plt.plot(m, color='red', label=r'$\mathcal{G} \rightarrow \mathrm{RNDPermut}(\hat{V}^*(\mathcal{G}))$', linewidth=2.5)
 plt.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='red')
-_draw_predictor_lines(plt.gca(), 'aggregate', legend=True)
+_draw_predictor_lines(plt.gca(), 'aggregate_samples', legend=True)
 plt.yscale('log')
 plt.yticks(fontsize=14)
 plt.xlabel('MPNN layers', fontsize=16)
@@ -159,4 +159,30 @@ if _ranks:
                    loc='center', bbox_to_anchor=(0.5, -0.04), ncol=2)
     fig_bar.tight_layout(rect=(0, 0.08, 1, 1))
     fig_bar.savefig('ranking_bars.pdf', bbox_inches='tight')
+    plt.clf()
+
+
+    _default_samples = np.full(10, np.nan)
+
+    agg_rho_samples = [_ranks.get(f"aggregate_samples|{p}|rho", _default_samples) for p in PREDICTORS]
+    agg_tau_samples = [_ranks.get(f"aggregate_samples|{p}|tau", _default_samples) for p in PREDICTORS]
+    # agg_rho_err = _bar_ci(agg_rhos, agg_rho_samples)
+    print(np.mean(agg_rho_samples, axis=1))
+    # agg_tau_err = _bar_ci(agg_taus, agg_tau_samples)
+    fig_agg, ax_agg = plt.subplots(figsize=(8, 5))
+    ax_agg.bar(x_pos - bar_width / 2, np.mean(agg_rho_samples, axis=1), bar_width, label='Spearman ρ', color='steelblue',
+                capsize=5, error_kw=dict(elinewidth=1.5, ecolor='steelblue'))
+    ax_agg.bar(x_pos + bar_width / 2, np.mean(agg_tau_samples, axis=1), bar_width, label='Kendall τ', color='darkorange',
+                capsize=5, error_kw=dict(elinewidth=1.5, ecolor='darkorange'))
+    ax_agg.set_ylim(0, 1)
+    ax_agg.set_xticks(x_pos)
+    ax_agg.set_xticklabels(PRED_LABELS, fontsize=12, rotation=20, ha='right')
+    ax_agg.set_title('Aggregated (all AIGs)', fontsize=15)
+    ax_agg.set_ylabel('Rank correlation', fontsize=13)
+    ax_agg.tick_params(axis='y', labelsize=12)
+    ax_agg.set_yscale('log')
+    ax_agg.grid(axis='y', linestyle='--', alpha=0.5)
+    ax_agg.legend(fontsize=13)
+    fig_agg.tight_layout()
+    fig_agg.savefig('ranking_bars_aggregate.pdf', bbox_inches='tight')
     plt.clf()
