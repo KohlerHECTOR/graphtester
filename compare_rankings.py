@@ -43,6 +43,8 @@ AIGS = [
 
 
 def load(aig: str):
+    # TODO: path should be argument
+
     """Load a dataset. Returns (x, y_min) or raises FileNotFoundError."""
     p = DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / "res.npz"
     data = np.load(p)
@@ -52,6 +54,8 @@ def load(aig: str):
 
 
 def aig_path(aig: str, i: int) -> Path:
+    # TODO: path should be argument
+
     return DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / f"{i}.aig"
 
 
@@ -144,6 +148,7 @@ def wl_layer_prediction(graphs, y: np.ndarray, k: int) -> np.ndarray:
     Graphs sharing the same 1-WL hash after ``k`` iterations are indistinguishable
     to a k-layer MPNN; the optimal prediction is the per-group mean of y.
     """
+    # TODO: also do for 0 iters
     hashes, _ = _estimate_hashes_at_k_iterations(list(graphs), iterations=k)
     hashes_at_k = hashes[k]
     groups: dict = {}
@@ -212,57 +217,12 @@ def main():
         all_one_layer.append(one)
         all_x.append(x)
 
-    if all_y:
-        y = np.concatenate(all_y)
-        counts = np.concatenate(all_counts)
-        depths = np.concatenate(all_depths)
-        x = np.concatenate(all_x)
-        zero = zero_layer_prediction(y, counts)
-        size_depth = size_depth_prediction(y, counts, depths)
-        one = np.concatenate(all_one_layer)
+    
 
-        print("\naggregate")
-        print(HEADER)
-
-        # Subsampling: 10 repetitions, each sampling up to 100 graphs per AIG (without replacement)
-        N_AGG_SAMPLES = 10
-        N_SUB = 100
-        rng = np.random.default_rng(42)
-        _sample_rhos = {n: [] for n in ["0-layer", "size+depth", "x", "1-layer"]}
-        _sample_taus = {n: [] for n in ["0-layer", "size+depth", "x", "1-layer"]}
-        _sample_nmse = {n: [] for n in ["0-layer", "size+depth", "x", "1-layer"]}
-
-        # Build per-AIG index boundaries so we can subsample each family independently
-        _aig_slices = []
-        offset = 0
-        for _y in all_y:
-            _aig_slices.append(slice(offset, offset + len(_y)))
-            offset += len(_y)
-        for _ in range(N_AGG_SAMPLES):
-            sub_idx = []
-            for sl in _aig_slices:
-                n_avail = sl.stop - sl.start
-                k = min(N_SUB, n_avail)
-                sub_idx.append(rng.choice(np.arange(sl.start, sl.stop), size=k, replace=False))
-            idx = np.concatenate(sub_idx)
-            y_s, counts_s, depths_s, x_s, one_s = y[idx], counts[idx], depths[idx], x[idx], one[idx]
-            zero_s = zero_layer_prediction(y_s, counts_s)
-            sd_s = size_depth_prediction(y_s, counts_s, depths_s)
-            xf_s = x_feature_prediction(x_s, y_s, 1e-100)
-            for name, pred in [("0-layer", zero_s), ("size+depth", sd_s), ("x", xf_s), ("1-layer", one_s)]:
-                _sample_nmse[name].append(nmse(y_s, pred))
-                rho_s, tau_s = rank_metrics(y_s, pred)
-                _sample_rhos[name].append(rho_s)
-                _sample_taus[name].append(tau_s)
-        for name in ["0-layer", "size+depth", "x", "1-layer"]:
-            mse_results[f"aggregate_samples|{name}"] = np.array(_sample_nmse[name])
-            rank_results[f"aggregate_samples|{name}|rho"] = np.array(_sample_rhos[name])
-            rank_results[f"aggregate_samples|{name}|tau"] = np.array(_sample_taus[name])
-
-        np.savez("res/predictor_mse.npz", **mse_results)
-        np.savez("res/predictor_ranks.npz", **rank_results)
-        print("\nSaved predictor MSEs to res/predictor_mse.npz")
-        print("Saved predictor rank metrics to res/predictor_ranks.npz")
+    np.savez("res/predictor_mse.npz", **mse_results)
+    np.savez("res/predictor_ranks.npz", **rank_results)
+    print("\nSaved predictor MSEs to res/predictor_mse.npz")
+    print("Saved predictor rank metrics to res/predictor_ranks.npz")
 
 
 if __name__ == "__main__":

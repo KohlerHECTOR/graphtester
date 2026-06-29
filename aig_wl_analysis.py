@@ -33,6 +33,8 @@ def build_R1(node_types, edges):
     return _build_digraph(node_types, edges)
 
 def load(aig: str):
+    # TODO: path should be argument
+
     """Load a dataset. Returns (X, Y_all, y_min) or raises FileNotFoundError."""
     p = DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / "res.npz"
     data = np.load(p)
@@ -43,6 +45,7 @@ def load(aig: str):
 
 
 def aig_path(aig: str, i: int) -> Path:
+    # TODO: path should be argument
     return DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / f"{i}.aig"
 
 
@@ -59,6 +62,7 @@ def load_raw_aigs(aig: str):
 
 REPETS = 10
 N_SUB = 100
+# Increase iters, and increase n-wl test
 WL_ITERS = 2
 N_PERM_AGG = 10
 
@@ -94,7 +98,7 @@ for aig in available:
         metrics=["lower_bound_mse"],
         iterations=WL_ITERS,
     )
-    curve_aig = ev.as_dataframe()["Lower Bound MSE"].to_numpy()/max(1, y_var) # for too small variance
+    curve_aig = ev.as_dataframe()["Lower Bound MSE"].to_numpy()/max(1, y_var) #TODO: check for too small variance
     print(curve_aig)
     perm_lbs = []
     for _ in range(N_PERM_AGG):
@@ -110,50 +114,3 @@ for aig in available:
         perm_lbs.append(ev_perm.as_dataframe()["Lower Bound MSE"].to_numpy() / max(1, y_var))
     np.save(f'res/{aig}_curve.npy', curve_aig)
     np.save(f'res/{aig}_perm_curves.npy', np.asarray(perm_lbs))
-
-
-
-# curves = []
-# perm_lbs = []
-
-# for _ in range(REPETS):
-#     print(len(curves))
-#     agg_graphs = []
-#     agg_y = []
-#     for aig in available:
-#         _, _, y = load(aig)
-#         raw = load_raw_aigs(aig)
-#         n_avail = min(len(raw), len(y))
-#         k = min(N_SUB, n_avail)
-#         idx = np.random.choice(n_avail, size=k, replace=False)
-#         for i in idx:
-#             t, e = raw[i]
-#             agg_graphs.append(build_R1(t, e))
-#             agg_y.append(float(y[i]))
-#     var_agg_y = np.var(agg_y)
-
-
-#     ds_agg = Dataset(graphs=agg_graphs, labels=agg_y, name="Aggregate")
-#     ev_agg = gt.evaluate(
-#         ds_agg,
-#         ignore_node_features=False,
-#         ignore_edge_features=True,
-#         metrics=["lower_bound_mse"],
-#         iterations=WL_ITERS,
-#     )
-#     curves.append(ev_agg.as_dataframe()['Lower Bound MSE'].to_numpy() / max(1, var_agg_y))
-
-#     for _ in range(N_PERM_AGG):
-#         y_perm = np.random.permutation(agg_y)
-#         ds_perm = Dataset(graphs=agg_graphs, labels=y_perm.tolist(), name="R1_aggregate_perm")
-#         ev_perm = gt.evaluate(
-#             ds_perm,
-#             ignore_node_features=False,
-#             ignore_edge_features=True,
-#             metrics=["lower_bound_mse"],
-#             iterations=WL_ITERS,
-#         )
-#         perm_lbs.append(ev_perm.as_dataframe()["Lower Bound MSE"].to_numpy() / max(1, var_agg_y))
-
-# np.save('res/generlization_curves.npy', np.asarray(curves))
-# np.save('res/perm_curves.npy', np.asarray(perm_lbs))
