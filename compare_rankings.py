@@ -37,14 +37,14 @@ WL_ITERS = 1  # number of message-passing layers for the WL-based predictor
 
 
 AIGS = [
-    "i10", "apex1", "C1355", "C6288", "dalu",
-    "k2", "bc0", "C5315", "C7552", "mainpla",
+    "i10", "apex1", "dalu",
+    "k2", "bc0", "mainpla",
 ]
 
 
 def load(aig: str):
     """Load a dataset. Returns (x, y_min) or raises FileNotFoundError."""
-    p = DATASET_ROOT / f"dataset-{aig}" / "res.npz"
+    p = DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / "res.npz"
     data = np.load(p)
     x_all = data["x"]
     y_all = data["y"]
@@ -52,7 +52,7 @@ def load(aig: str):
 
 
 def aig_path(aig: str, i: int) -> Path:
-    return DATASET_ROOT / f"dataset-{aig}" / f"{i}.aig"
+    return DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / f"{i}.aig"
 
 
 def extract_aig(abc):

@@ -21,66 +21,65 @@ def _draw_predictor_lines(ax, key_prefix, legend=False):
     if sd_key in _pred_mse:
         ax.axhline(
             float(np.mean(_pred_mse[sd_key])), color='green', linestyle=':', linewidth=2,
-            label=r'$|(\mathcal{V}_{\mathcal{G}}|, |\mathcal{E}_{\mathcal{G}}|) \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None,
+            label=r'$(|\mathcal{V}_{\mathcal{G}}|, d) \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None,
         )
     key = f"{key_prefix}|x"
     if key in _pred_mse:
         ax.axhline(
-            np.clip((float(np.mean(_pred_mse[key]))), 1e-16, 1), color='magenta', linestyle='-.', linewidth=2,
+            (float(np.mean(_pred_mse[key]))), color='magenta', linestyle='-.', linewidth=2,
             label=(r'$x_{\mathcal{G}} \rightarrow \hat{V}^*(\mathcal{G})$' if legend else None),
         )
 
 
-a = np.load('res/generlization_curves.npy')
+# a = np.load('res/generlization_curves.npy')
 
-m = np.mean(a, axis=0)
+# m = np.mean(a, axis=0)
 
-n_steps = a.shape[1]
-ci_low = np.empty(n_steps)
-ci_high = np.empty(n_steps)
-for i in range(n_steps):
-    res = bootstrap((a[:, i],), np.mean, confidence_level=0.95, method='percentile')
-    ci_low[i] = res.confidence_interval.low
-    ci_high[i] = res.confidence_interval.high
+# n_steps = a.shape[1]
+# ci_low = np.empty(n_steps)
+# ci_high = np.empty(n_steps)
+# for i in range(n_steps):
+#     res = bootstrap((a[:, i],), np.mean, confidence_level=0.95, method='percentile')
+#     ci_low[i] = res.confidence_interval.low
+#     ci_high[i] = res.confidence_interval.high
 
 
-plt.title('Random aggregation of non-equivalent AIGs', fontsize=16)
-plt.plot(m, label=r'$\mathcal{G} \rightarrow \hat{V}^*(\mathcal{G})$', linewidth=2.5)
-plt.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2)
+# plt.title('Random aggregation of non-equivalent AIGs', fontsize=16)
+# plt.plot(m, label=r'$\mathcal{G} \rightarrow \hat{V}^*(\mathcal{G})$', linewidth=2.5)
+# plt.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2)
 
-a = np.load('res/perm_curves.npy')
-m = np.mean(a, axis=0)
+# a = np.load('res/perm_curves.npy')
+# m = np.mean(a, axis=0)
 
-n_steps = a.shape[1]
-ci_low = np.empty(n_steps)
-ci_high = np.empty(n_steps)
-for i in range(n_steps):
-    res = bootstrap((a[:, i],), np.mean, confidence_level=0.95, method='percentile')
-    ci_low[i] = res.confidence_interval.low
-    ci_high[i] = res.confidence_interval.high
+# n_steps = a.shape[1]
+# ci_low = np.empty(n_steps)
+# ci_high = np.empty(n_steps)
+# for i in range(n_steps):
+#     res = bootstrap((a[:, i],), np.mean, confidence_level=0.95, method='percentile')
+#     ci_low[i] = res.confidence_interval.low
+#     ci_high[i] = res.confidence_interval.high
 
-plt.plot(m, color='red', label=r'$\mathcal{G} \rightarrow \mathrm{RNDPermut}(\hat{V}^*(\mathcal{G}))$', linewidth=2.5)
-plt.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='red')
-_draw_predictor_lines(plt.gca(), 'aggregate_samples', legend=True)
-plt.yscale('log')
-plt.yticks(fontsize=14)
-plt.xlabel('MPNN layers', fontsize=16)
-plt.ylabel('Theoretical MSE lower bound', fontsize=16)
-plt.legend(fontsize=14, bbox_to_anchor=(1.01, 0.5), ncol=1)
-plt.grid(True, which='both', linestyle='--', alpha=0.5)
-plt.xticks([0, 1, 2, 3, 4, 5],['0', '1', '2', '3', '4', '5'], fontsize=14)
-plt.tight_layout(rect=(0, 0, 0.62, 1))
-plt.savefig('general_10.pdf', bbox_inches='tight')
+# plt.plot(m, color='red', label=r'$\mathcal{G} \rightarrow \mathrm{RNDPermut}(\hat{V}^*(\mathcal{G}))$', linewidth=2.5)
+# plt.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='red')
+# _draw_predictor_lines(plt.gca(), 'aggregate_samples', legend=True)
+# plt.yscale('log')
+# plt.yticks(fontsize=14)
+# plt.xlabel('MPNN layers', fontsize=16)
+# plt.ylabel('Theoretical MSE lower bound', fontsize=16)
+# plt.legend(fontsize=14, bbox_to_anchor=(1.01, 0.5), ncol=1)
+# plt.grid(True, which='both', linestyle='--', alpha=0.5)
+# plt.xticks([0, 1, 2, 3, 4, 5],['0', '1', '2', '3', '4', '5'], fontsize=14)
+# plt.tight_layout(rect=(0, 0, 0.62, 1))
+# plt.savefig('general_10.pdf', bbox_inches='tight')
 
 AIGS = [
-    "i10", "apex1", "C1355", "C6288", "dalu",
-    "k2", "bc0", "C5315", "C7552", "mainpla",
+    "i10", "apex1", "dalu",
+    "k2", "bc0", "mainpla",
 ]
 plt.clf()
-fig, axes = plt.subplots(2, 5, figsize=(20, 8), sharey=True)
-_tiny = 1e-16
+fig, axes = plt.subplots(2, 3, figsize=(20, 8))
 for ax, aig in zip(axes.flat, AIGS):
-    m = np.clip((np.load(f'res/{aig}_curve.npy')), _tiny, 1)
+    m = np.load(f'res/{aig}_curve.npy')
     ax.plot(m, label=r'$\mathcal{G} \rightarrow \hat{V}^*(\mathcal{G})$', linewidth=2.5)
 
     a = np.load(f'res/{aig}_perm_curves.npy')
@@ -93,14 +92,12 @@ for ax, aig in zip(axes.flat, AIGS):
         res = bootstrap((a[:, i],), np.mean, confidence_level=0.95, method='percentile')
         ci_low[i] = res.confidence_interval.low
         ci_high[i] = res.confidence_interval.high
-    ci_low = np.clip(ci_low, _tiny, None)
 
     ax.plot(m, color='red', label=r'$\mathcal{G} \rightarrow \mathrm{RNDPermut}(\hat{V}^*(\mathcal{G}))$', linewidth=2.5)
     ax.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='red')
     _draw_predictor_lines(ax, aig, legend=False)
     ax.set_yscale('log')
-    ax.set_ylim(1e-17, 1)
-    ax.set_xticks([0, 1, 2, 3, 4, 5],['0', '1', '2', '3', '4', '5'], fontsize=14)
+    ax.set_xticks([0, 1, 2],['0', '1', '2'], fontsize=14)
     ax.set_xlabel('MPNN layers', fontsize=15)
     ax.set_title(aig, fontsize=14)
     ax.tick_params(axis='both', labelsize=14)
@@ -138,13 +135,13 @@ if _ranks:
     x_pos = np.arange(len(PREDICTORS))
     bar_width = 0.35
 
-    fig_bar, axes_bar = plt.subplots(2, 5, figsize=(22, 8), sharey=True)
+    fig_bar, axes_bar = plt.subplots(2, 3, figsize=(22, 8), sharey=True)
     for ax, aig in zip(axes_bar.flat, AIGS):
         rhos = [float(_ranks.get(f"{aig}|{p}|rho", np.nan)) for p in PREDICTORS]
         taus = [float(_ranks.get(f"{aig}|{p}|tau", np.nan)) for p in PREDICTORS]
         ax.bar(x_pos - bar_width / 2, rhos, bar_width, label='Spearman ρ', color='steelblue')
         ax.bar(x_pos + bar_width / 2, taus, bar_width, label='Kendall τ', color='darkorange')
-        ax.set_ylim(0, 1)
+        ax.set_ylim(0.8, 1)
         ax.set_xticks(x_pos)
         ax.set_xticklabels(PRED_LABELS, fontsize=11, rotation=20, ha='right')
         ax.set_title(aig, fontsize=14)
@@ -162,27 +159,27 @@ if _ranks:
     plt.clf()
 
 
-    _default_samples = np.full(10, np.nan)
+#     _default_samples = np.full(10, np.nan)
 
-    agg_rho_samples = [_ranks.get(f"aggregate_samples|{p}|rho", _default_samples) for p in PREDICTORS]
-    agg_tau_samples = [_ranks.get(f"aggregate_samples|{p}|tau", _default_samples) for p in PREDICTORS]
-    # agg_rho_err = _bar_ci(agg_rhos, agg_rho_samples)
-    print(np.mean(agg_rho_samples, axis=1))
-    # agg_tau_err = _bar_ci(agg_taus, agg_tau_samples)
-    fig_agg, ax_agg = plt.subplots(figsize=(8, 5))
-    ax_agg.bar(x_pos - bar_width / 2, np.mean(agg_rho_samples, axis=1), bar_width, label='Spearman ρ', color='steelblue',
-                capsize=5, error_kw=dict(elinewidth=1.5, ecolor='steelblue'))
-    ax_agg.bar(x_pos + bar_width / 2, np.mean(agg_tau_samples, axis=1), bar_width, label='Kendall τ', color='darkorange',
-                capsize=5, error_kw=dict(elinewidth=1.5, ecolor='darkorange'))
-    ax_agg.set_ylim(0, 1)
-    ax_agg.set_xticks(x_pos)
-    ax_agg.set_xticklabels(PRED_LABELS, fontsize=12, rotation=20, ha='right')
-    ax_agg.set_title('Aggregated (all AIGs)', fontsize=15)
-    ax_agg.set_ylabel('Rank correlation', fontsize=13)
-    ax_agg.tick_params(axis='y', labelsize=12)
-    ax_agg.set_yscale('log')
-    ax_agg.grid(axis='y', linestyle='--', alpha=0.5)
-    ax_agg.legend(fontsize=13)
-    fig_agg.tight_layout()
-    fig_agg.savefig('ranking_bars_aggregate.pdf', bbox_inches='tight')
-    plt.clf()
+#     agg_rho_samples = [_ranks.get(f"aggregate_samples|{p}|rho", _default_samples) for p in PREDICTORS]
+#     agg_tau_samples = [_ranks.get(f"aggregate_samples|{p}|tau", _default_samples) for p in PREDICTORS]
+#     # agg_rho_err = _bar_ci(agg_rhos, agg_rho_samples)
+#     print(np.mean(agg_rho_samples, axis=1))
+#     # agg_tau_err = _bar_ci(agg_taus, agg_tau_samples)
+#     fig_agg, ax_agg = plt.subplots(figsize=(8, 5))
+#     ax_agg.bar(x_pos - bar_width / 2, np.mean(agg_rho_samples, axis=1), bar_width, label='Spearman ρ', color='steelblue',
+#                 capsize=5, error_kw=dict(elinewidth=1.5, ecolor='steelblue'))
+#     ax_agg.bar(x_pos + bar_width / 2, np.mean(agg_tau_samples, axis=1), bar_width, label='Kendall τ', color='darkorange',
+#                 capsize=5, error_kw=dict(elinewidth=1.5, ecolor='darkorange'))
+#     ax_agg.set_ylim(0, 1)
+#     ax_agg.set_xticks(x_pos)
+#     ax_agg.set_xticklabels(PRED_LABELS, fontsize=12, rotation=20, ha='right')
+#     ax_agg.set_title('Aggregated (all AIGs)', fontsize=15)
+#     ax_agg.set_ylabel('Rank correlation', fontsize=13)
+#     ax_agg.tick_params(axis='y', labelsize=12)
+#     ax_agg.set_yscale('log')
+#     ax_agg.grid(axis='y', linestyle='--', alpha=0.5)
+#     ax_agg.legend(fontsize=13)
+#     fig_agg.tight_layout()
+#     fig_agg.savefig('ranking_bars_aggregate.pdf', bbox_inches='tight')
+#     plt.clf()
