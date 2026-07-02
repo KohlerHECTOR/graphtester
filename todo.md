@@ -1,7 +1,6 @@
 - [ ] Plot rank correlation of RNDPermut
-- [ ] Investigate why aggregated is so good
 - [ ] Investigate large action space
-- [ ] Should focus on static datasets for the mlcad benchs.
+- [x] Should focus on static datasets for the mlcad benchs.
 - [ ] show that fitting gcn is more costly than mlp for equiv perf.
 - [ ] seems like better estimate of V are hard to predict
 - [ ] plot with more mpnn layers
