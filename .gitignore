@@ -169,3 +169,4 @@ wl_env/
 io/
 res/
 *.aig
+*.npy

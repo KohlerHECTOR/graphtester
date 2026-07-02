@@ -1,13 +1,16 @@
+import argparse
 from pathlib import Path
+from typing import cast
 import numpy as np
-from sklearn.metrics import mean_squared_error
 import igraph as ig
+from joblib import Parallel, delayed
 
 import graphtester as gt
 from graphtester.io.dataset import Dataset
+from igraph import Graph
 from abc_py import AbcInterface
 
-def extract_aig(abc):
+def extract_aig(abc) -> tuple[np.ndarray, np.ndarray]:
     n = abc.numNodes()
     node_types = np.zeros(n, dtype=int)
     edges = []
@@ -21,22 +24,16 @@ def extract_aig(abc):
     edges = np.asarray(edges, dtype=int) if edges else np.zeros((0, 2), dtype=int)
     return node_types, edges
 
-def _build_digraph(node_labels, edges):
+def build_digraph(node_labels, edges) -> Graph:
     n = len(node_labels)
     edge_list = [(int(s), int(d)) for s, d in edges] if len(edges) else []
     g = ig.Graph(n=n, edges=edge_list, directed=False)
     g.vs["label"] = [str(lab) for lab in node_labels]
     return g
 
-
-def build_R1(node_types, edges):
-    return _build_digraph(node_types, edges)
-
-def load(aig: str):
-    # TODO: path should be argument
-
+def load(dataset_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load a dataset. Returns (X, Y_all, y_min) or raises FileNotFoundError."""
-    p = DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / "res.npz"
+    p = dataset_path / "res.npz"
     data = np.load(p)
     X = data["x"]
     Y_all = data["y"]
@@ -44,52 +41,50 @@ def load(aig: str):
     return X, Y_all, y_min
 
 
-def aig_path(aig: str, i: int) -> Path:
-    # TODO: path should be argument
-    return DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / f"{i}.aig"
+def aig_path(dataset_path: Path, i: int) -> Path:
+    return dataset_path / f"{i}.aig"
 
 
-def load_raw_aigs(aig: str):
-    """Return list of (node_types, edges) per graph, cached on disk."""
-    man = AbcInterface(); man.end(); man.start()
-    types_list, edges_list = [], []
-    for i in range(1000):
-        man.read(str(aig_path(aig, i)))
-        t, e = extract_aig(man)
-        types_list.append(t); edges_list.append(e)
-    return list(zip(types_list, edges_list))
+def _load_some_aigs(paths: list[Path]) -> list[tuple[np.ndarray, np.ndarray]]:
+    man = AbcInterface()
+    man.end()
+    man.start()
+    to_ret = []
+    for path in paths:
+        man.read(str(path))
+        to_ret.append(extract_aig(man))
+    return to_ret
+
+def load_raw_aigs(dataset_path: Path, n_jobs: int = 1) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Return list of (node_types, edges) per graph, loaded in parallel."""
+    chunk_size = (1000 + n_jobs - 1) // n_jobs
+    chunks = [
+        [aig_path(dataset_path, j) for j in range(i, min(i + chunk_size, 1000))]
+        for i in range(0, 1000, chunk_size)
+    ]
+    nested = cast(list[list[tuple[np.ndarray, np.ndarray]]], Parallel(n_jobs=n_jobs)(delayed(_load_some_aigs)(chunk) for chunk in chunks))
+    return [item for sublist in nested for item in sublist]
 
 
-REPETS = 10
-N_SUB = 100
-# Increase iters, and increase n-wl test
-WL_ITERS = 2
-N_PERM_AGG = 10
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run WL analysis on an AIG dataset.")
+    parser.add_argument("dataset_path", type=Path, help="Path to the dataset directory.")
+    parser.add_argument("--wl-iters", type=int, default=2, help="Number of WL iterations (default: 2).")
+    parser.add_argument("--n-perm-agg", type=int, default=2, help="Number of permutation aggregations (default: 10).")
+    parser.add_argument("--n-sub", type=int, default=10, help="Number of subsamples (default: 100).")
+    parser.add_argument("--n-cpu", type=int, default=14, help="Number of parallel workers for loading AIGs (default: 1).")
+    args = parser.parse_args()
 
-AIGS = [
-    "i10", "apex1", "dalu",
-    "k2", "bc0", "mainpla",
-]
+    WL_ITERS = args.wl_iters
+    N_PERM_AGG = args.n_perm_agg
+    N_SUB = args.n_sub
 
-DATASET_ROOT = Path("../../sb3-abc")
-
-# Discover which datasets are actually available on disk.
-available = []
-for a in AIGS:
-    try:
-        load(a)
-        available.append(a)
-    except FileNotFoundError:
-        print(f"[skip] {a}: dataset missing")
-print("Available datasets:", available)
-
-
-
-for aig in available:
-    _, _, y = load(aig)
-    raw = load_raw_aigs(aig)
+    dataset_path = args.dataset_path.resolve()
+    aig_name = dataset_path.name
+    _, _, y = load(dataset_path)
+    raws = load_raw_aigs(dataset_path, n_jobs=args.n_cpu)
     y_var = np.var(y)
-    graphs = [build_R1(t, e) for (t, e) in raw]
+    graphs = cast(list[Graph], Parallel(n_jobs=args.n_cpu)(delayed(build_digraph)(t, e) for t, e in raws))
     ds = Dataset(graphs=graphs, labels=y.tolist(), name='Default extraction')
     ev = gt.evaluate(
         ds,
@@ -98,8 +93,7 @@ for aig in available:
         metrics=["lower_bound_mse"],
         iterations=WL_ITERS,
     )
-    curve_aig = ev.as_dataframe()["Lower Bound MSE"].to_numpy()/max(1, y_var) #TODO: check for too small variance
-    print(curve_aig)
+    curve_aig = ev.as_dataframe()["Lower Bound MSE"].to_numpy() / max(1, y_var)  # TODO: check for too small variance
     perm_lbs = []
     for _ in range(N_PERM_AGG):
         y_perm = np.random.permutation(y)
@@ -112,5 +106,5 @@ for aig in available:
             iterations=WL_ITERS,
         )
         perm_lbs.append(ev_perm.as_dataframe()["Lower Bound MSE"].to_numpy() / max(1, y_var))
-    np.save(f'res/{aig}_curve.npy', curve_aig)
-    np.save(f'res/{aig}_perm_curves.npy', np.asarray(perm_lbs))
+    np.save(dataset_path / f"{aig_name}_curve.npy", curve_aig)
+    np.save(dataset_path / f"{aig_name}_perm_curves.npy", np.asarray(perm_lbs))
