@@ -90,39 +90,56 @@ def _eval_perm(hashes: dict[int, list[str]], perm_labels: list[float], y_var: fl
     return np.array([d[k] for k in sorted(d)]) / max(1, y_var)
 
 
-def _hash_chunk(graphs: list[nx.Graph], iterations: int) -> dict[int, list[str]]:
-    """1-WL hashes for a chunk of graphs at each k = 1..iterations."""
+def _hash_chunk(
+    raws_chunk: list[tuple[np.ndarray, np.ndarray]], directed: bool, iterations: int
+) -> dict[int, list[str]]:
+    """1-WL hashes for a chunk of graphs at each k = 1..iterations.
+
+    Each networkx graph is built from its compact ``(node_types, edges)`` arrays,
+    hashed, and immediately discarded, so a worker only ever holds one graph in
+    memory at a time. Only the (tiny) hash strings cross the process boundary -- the
+    heavy networkx objects are never returned to the parent.
+    """
     out: dict[int, list[str]] = {k: [] for k in range(1, iterations + 1)}
-    for ng in graphs:
+    for node_types, edges in raws_chunk:
+        ng = build_nx_graph(node_types, edges, directed)
         for k in range(1, iterations + 1):
             out[k].append(
                 nx.weisfeiler_lehman_graph_hash(ng, node_attr="label", iterations=k)
             )
+        del ng
     return out
 
 
-def _nx_hashes_at_k_iterations(
-    graphs: list[nx.Graph], iterations: int, n_jobs: int = 1
+def _nx_hashes_from_raws(
+    raws: list[tuple[np.ndarray, np.ndarray]],
+    directed: bool,
+    iterations: int,
+    n_jobs: int = 1,
 ) -> dict[int, list[str]]:
     """Graph-level 1-WL hashes at each k = 1..iterations using networkx.
 
     Returns ``{k: [hash_for_graph_0, ...]}`` matching the shape consumed by
-    ``_evaluate_mse``. networkx's ``weisfeiler_lehman_graph_hash`` uses a
-    deterministic blake2b digest, so hashes are stable across processes; the graphs
-    are split into ``n_jobs`` chunks hashed in parallel and re-concatenated in order.
-    Works for both ``nx.Graph`` and ``nx.DiGraph`` inputs.
+    ``_evaluate_mse``. The compact ``(node_types, edges)`` arrays are split into
+    ``n_jobs`` chunks; each worker builds, hashes, and discards its graphs one at a
+    time (see ``_hash_chunk``), so peak memory stays flat in the dataset size and no
+    networkx graph is ever held in the parent or shipped between processes.
+    networkx's ``weisfeiler_lehman_graph_hash`` uses a deterministic blake2b digest,
+    so hashes are stable across processes and chunks re-concatenate in order.
     """
-    n = len(graphs)
+    n = len(raws)
     if n == 0:
         return {k: [] for k in range(1, iterations + 1)}
 
     n_jobs = max(1, min(n_jobs, n))
     chunk_size = (n + n_jobs - 1) // n_jobs
-    chunks = [graphs[i:i + chunk_size] for i in range(0, n, chunk_size)]
+    chunks = [raws[i:i + chunk_size] for i in range(0, n, chunk_size)]
 
     partials = cast(
         list[dict[int, list[str]]],
-        Parallel(n_jobs=n_jobs)(delayed(_hash_chunk)(chunk, iterations) for chunk in chunks),
+        Parallel(n_jobs=n_jobs)(
+            delayed(_hash_chunk)(chunk, directed, iterations) for chunk in chunks
+        ),
     )
 
     hashes: dict[int, list[str]] = {k: [] for k in range(1, iterations + 1)}
@@ -133,7 +150,8 @@ def _nx_hashes_at_k_iterations(
 
 
 def parallel_evaluate(
-    graphs: list[nx.Graph],
+    raws: list[tuple[np.ndarray, np.ndarray]],
+    directed: bool,
     y: np.ndarray,
     y_var: np.float32,
     wl_iters: int,
@@ -142,17 +160,16 @@ def parallel_evaluate(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Hash the graphs (1-WL, networkx, parallel over chunks) then evaluate MSE.
 
-    The permutation null baseline uses a fixed ``n_perms`` label shuffles that is
-    independent of ``n_jobs`` -- workers only control parallelism, not the number of
-    permutations -- so the baseline has the same statistical power on every dataset
-    regardless of the machine it runs on.
+    Graphs are built from their compact ``(node_types, edges)`` arrays and hashed
+    inside the workers, one at a time, so no networkx object is held in the parent or
+    shipped between processes -- this keeps peak memory flat in the dataset size.
 
     Returns
     -------
     curve : np.ndarray  (wl_iters,)              # k = 1..wl_iters
-    perm_curves : np.ndarray  (n_perms, wl_iters)
+    perm_curves : np.ndarray  (n_perm, wl_iters)
     """
-    hashes = _nx_hashes_at_k_iterations(list(graphs), wl_iters, n_jobs=n_jobs)
+    hashes = _nx_hashes_from_raws(raws, directed, wl_iters, n_jobs=n_jobs)
 
     if hashes_save_path is not None:
         with open(hashes_save_path, "wb") as f:
@@ -197,14 +214,8 @@ if __name__ == "__main__":
     raws = load_raw_aigs(dataset_path, n_graphs=len(y), n_jobs=args.n_cpu)
     y_var = np.var(y, dtype=np.float32)
     for directed, suffix in [(False, "undirected"), (True, "directed")]:
-        graphs = cast(
-            list[nx.Graph],
-            Parallel(n_jobs=args.n_cpu)(
-                delayed(build_nx_graph)(t, e, directed) for t, e in raws
-            ),
-        )
         curve_aig, perm_lbs = parallel_evaluate(
-            graphs, y, y_var,
+            raws, directed, y, y_var,
             wl_iters=args.wl_iters,
             n_jobs=args.n_cpu,
             hashes_save_path=f"{aig_name}_hashes_{suffix}.pkl",
