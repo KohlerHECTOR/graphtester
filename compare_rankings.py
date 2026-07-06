@@ -9,11 +9,11 @@ Predictors
     information; its prediction depends only on the number of nodes. We model it
     as the mean y over all graphs that share the same node count.
 * "1-layer": a perfect 1-layer MPNN can only distinguish graphs up to their
-    1-WL colour refinement after a single message-passing step. We reuse
-    graphtester's 1-WL hashing (``_estimate_hashes_at_k_iterations``) to group
-    graphs that are indistinguishable after k=1 iterations, then predict the
-    per-group mean y. This is exactly the optimal predictor whose MSE is the
-    ``lower_bound_mse`` reported by ``graphtester`` at 1 layer.
+    1-WL colour refinement after a single message-passing step. We use networkx's
+    ``weisfeiler_lehman_graph_hash`` to group graphs that are indistinguishable after
+    k iterations, then predict the per-group mean y. Two variants are reported: one
+    treating the AIG as undirected (``nx.Graph``) and one preserving edge direction
+    (``nx.DiGraph``).
 * "x-features": groups graphs whose x feature vectors agree up to a tolerance and
     predicts the per-group mean y -- the optimal predictor that only sees the x
     features. Reported for several tolerances (1e-1 down to 1e-5).
@@ -22,41 +22,37 @@ Results are reported per AIG family and for the aggregate, using Spearman rho an
 Kendall tau.
 """
 
-from pathlib import Path
-
-import igraph as ig
+import pickle
 import numpy as np
+from joblib import Parallel, delayed
 from scipy.stats import kendalltau, spearmanr
 
 from abc_py import AbcInterface
-from graphtester.evaluate.dataset import _estimate_hashes_at_k_iterations
 
-DATASET_ROOT = Path("../../sb3-abc")
-
-WL_ITERS = 1  # number of message-passing layers for the WL-based predictor
+WL_ITERS = 5  # number of message-passing layers for the WL-based predictor
+SEEDS = list(range(10))
 
 
 AIGS = [
-    "i10", "apex1", "dalu",
-    "k2", "bc0", "mainpla",
+    "i10", "apex1", "dalu", "C6288", "C1355", "C5315", "C7552",
+    "k2", "bc0", "mainpla"
 ]
 
 
-def load(aig: str):
+def load(aig: str, seed: int):
     # TODO: path should be argument
 
-    """Load a dataset. Returns (x, y_min) or raises FileNotFoundError."""
-    p = DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / "res.npz"
+    """Load a dataset for a given seed. Returns (x, y_min) or raises FileNotFoundError."""
+    p =f"dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False/res.npz"
     data = np.load(p)
     x_all = data["x"]
     y_all = data["y"]
     return x_all, np.amin(y_all, axis=1)
 
 
-def aig_path(aig: str, i: int) -> Path:
+def aig_path(aig: str, seed: int, i: int) -> str:
     # TODO: path should be argument
-
-    return DATASET_ROOT / f"dataset-{aig}-all-actions-False-mc-simu-100" / f"{i}.aig"
+    return f"dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False/{i}.aig"
 
 
 def extract_aig(abc):
@@ -75,28 +71,17 @@ def extract_aig(abc):
     return node_types, edges
 
 
-def _build_graph(node_labels, edges) -> ig.Graph:
-    """Build an undirected igraph graph with node-type labels (matches R1 extraction)."""
-    n = len(node_labels)
-    edge_list = [(int(s), int(d)) for s, d in edges] if len(edges) else []
-    g = ig.Graph(n=n, edges=edge_list, directed=False)
-    g.vs["label"] = [str(lab) for lab in node_labels]
-    return g
-
-
-def load_graphs(aig: str, n_graphs: int):
-    """Return the igraph graphs for the first ``n_graphs`` AIGs of a family."""
+def load_graphs(aig: str, seed: int, n_graphs: int):
+    """Return per-graph ``(node_types, edges, depth)`` for the first ``n_graphs`` AIGs."""
     man = AbcInterface()
     man.end()
     man.start()
     graphs = []
     for i in range(n_graphs):
-        man.read(str(aig_path(aig, i)))
+        man.read(str(aig_path(aig, seed, i)))
         stats = man.aigStats()
         node_types, edges = extract_aig(man)
-        g = _build_graph(node_types, edges)
-        g["depth"] = int(stats.lev)
-        graphs.append(g)
+        graphs.append((node_types, edges, int(stats.lev)))
     return graphs
 
 
@@ -142,15 +127,27 @@ def x_feature_prediction(x: np.ndarray, y: np.ndarray, tol: float) -> np.ndarray
     return pred
 
 
-def wl_layer_prediction(graphs, y: np.ndarray, k: int) -> np.ndarray:
-    """Perfect k-layer MPNN prediction via graphtester's 1-WL hashing.
+def load_wl_hashes(aig: str, seed: int, directed: bool, k: int) -> list[str]:
+    """Load precomputed 1-WL graph hashes at iteration ``k`` from the pickle written
+    by ``aig_wl_analysis.py`` (``{dataset}_hashes_{undirected|directed}.pkl``).
+
+    The pickle holds ``{iteration: [hash_for_graph_0, ...]}`` in graph index order.
+    """
+    suffix = "directed" if directed else "undirected"
+    prefix = f"dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False"
+    with open(f"{prefix}_hashes_{suffix}.pkl", "rb") as f:
+        hashes = pickle.load(f)
+    return hashes[k]
+
+
+def wl_layer_prediction(hashes_at_k, y: np.ndarray) -> np.ndarray:
+    """Perfect k-layer MPNN prediction from precomputed 1-WL graph hashes.
 
     Graphs sharing the same 1-WL hash after ``k`` iterations are indistinguishable
-    to a k-layer MPNN; the optimal prediction is the per-group mean of y.
+    to a k-layer MPNN; the optimal prediction is the per-group mean of y. Works for
+    hashes computed on either ``nx.Graph`` or ``nx.DiGraph`` inputs.
     """
-    # TODO: also do for 0 iters
-    hashes, _ = _estimate_hashes_at_k_iterations(list(graphs), iterations=k)
-    hashes_at_k = hashes[k]
+    hashes_at_k = list(hashes_at_k)[: len(y)]
     groups: dict = {}
     for hsh, val in zip(hashes_at_k, y):
         groups.setdefault(hsh, []).append(val)
@@ -170,59 +167,119 @@ def nmse(y: np.ndarray, pred: np.ndarray) -> float:
     return float(np.mean((y - pred) ** 2) / max(1.0, np.var(y)))
 
 
-def _print_row(name, perfect, pred):
-    rho, tau = rank_metrics(perfect, pred)
-    print(f"  {name:<10} {rho:>10.4f} {tau:>10.4f} {nmse(perfect, pred):>10.4g}")
+def gap_weighted_discordance(y: np.ndarray, pred: np.ndarray) -> float:
+    """Fraction of the total V* gap mass that ``pred`` misorders.
+
+    A value-weighted Kendall tau: for every pair of states, if ``pred`` ranks them
+    in the opposite order to the true optimal value ``y`` (lower = better), the pair
+    contributes its true value gap ``|y_i - y_j|`` to the numerator. Normalized by the
+    total gap mass over all pairs, giving a number in [0, 1]. Ties in ``pred`` count as
+    half a discordance. This directly captures "how much V* is lost to ranking errors".
+    """
+    n = len(y)
+    num = 0.0
+    den = 0.0
+    for i in range(n):
+        dy = y[i] - y[i + 1 :]
+        dp = pred[i] - pred[i + 1 :]
+        gap = np.abs(dy)
+        den += gap.sum()
+        sign = dy * dp
+        num += gap[sign < 0].sum() + 0.5 * gap[sign == 0].sum()
+    return float(num / den) if den > 0 else 0.0
 
 
 HEADER = f"  {'predictor':<10} {'Spearman':>10} {'Kendall':>10} {'NMSE':>10}"
+
+
+def _process_seed(aig: str, seed: int) -> dict | None:
+    """Run all predictors for one (aig, seed) pair. Returns a flat results dict."""
+    try:
+        x, y = load(aig, seed)
+    except FileNotFoundError:
+        print(f"[skip] {aig} seed {seed}: missing")
+        return None
+    y = y.astype(float)
+    raw = load_graphs(aig, seed, len(y))
+    counts = np.array([len(nt) for nt, _e, _d in raw])
+    depths = np.array([d for _nt, _e, d in raw])
+
+    zero = zero_layer_prediction(y, counts)
+    size_depth = size_depth_prediction(y, counts, depths)
+    xfeat = x_feature_prediction(x, y, 1e-8)
+    wl_undir = wl_layer_prediction(load_wl_hashes(aig, seed, False, WL_ITERS), y)
+    wl_dir = wl_layer_prediction(load_wl_hashes(aig, seed, True, WL_ITERS), y)
+
+    result = {}
+    rng = np.random.default_rng(seed)
+    for name, pred in [
+        ("0-layer", zero),
+        ("size+depth", size_depth),
+        ("x", xfeat),
+        ("wl-undirected", wl_undir),
+        ("wl-directed", wl_dir),
+    ]:
+        result[f"{aig}|{name}|seed-{seed}"] = nmse(y, pred)
+        rho, tau = rank_metrics(y, pred)
+        result[f"{aig}|{name}|seed-{seed}|rho"] = rho
+        result[f"{aig}|{name}|seed-{seed}|tau"] = tau
+        result[f"{aig}|{name}|seed-{seed}|gwd"] = gap_weighted_discordance(y, pred)
+        print(result[f"{aig}|{name}|seed-{seed}|gwd"])
+        # for k in REGRET_KS:
+        #     result[f"{aig}|{name}|seed-{seed}|regret-k{k}"] = expected_regret_at_k(
+        #         y, pred, k, REGRET_DRAWS, rng
+        #     )
+    print(f"  done: {aig} seed {seed}")
+    return result
 
 
 def main():
     available = []
     for aig in AIGS:
         try:
-            load(aig)
+            load(aig, SEEDS[0])
             available.append(aig)
         except FileNotFoundError:
             print(f"[skip] {aig}: dataset missing")
 
+    jobs = [(aig, seed) for aig in available for seed in SEEDS]
+    results = Parallel(n_jobs=len(SEEDS), prefer="processes")(
+        delayed(_process_seed)(aig, seed) for aig, seed in jobs
+    )
+
     mse_results: dict = {}
     rank_results: dict = {}
-    all_y, all_counts, all_depths, all_one_layer, all_x = [], [], [], [], []
+    regret_results: dict = {}
+    for res in results:
+        if res is None:
+            continue
+        for key, val in res.items():
+            if key.endswith("|rho") or key.endswith("|tau"):
+                rank_results[key] = val
+            elif key.endswith("|gwd") or "|regret-k" in key:
+                regret_results[key] = val
+            else:
+                mse_results[key] = val
+
+    # Print summary grouped by aig/seed
     for aig in available:
-        x, y = load(aig)
-        y = y.astype(float)
-        graphs = load_graphs(aig, len(y))
-        counts = np.array([g.vcount() for g in graphs])
-        depths = np.array([g["depth"] for g in graphs])
-
-        zero = zero_layer_prediction(y, counts)
-        size_depth = size_depth_prediction(y, counts, depths)
-        one = wl_layer_prediction(graphs, y, WL_ITERS)
-        xfeat = x_feature_prediction(x, y, 1e-100)
-
         print(f"\n{aig}")
-        print(HEADER)
-        for name, pred in [("0-layer", zero), ("size+depth", size_depth), ("x", xfeat), ("1-layer", one)]:
-            _print_row(name, y, pred)
-            mse_results[f"{aig}|{name}"] = nmse(y, pred)
-            rho, tau = rank_metrics(y, pred)
-            rank_results[f"{aig}|{name}|rho"] = rho
-            rank_results[f"{aig}|{name}|tau"] = tau
-
-        all_y.append(y)
-        all_counts.append(counts)
-        all_depths.append(depths)
-        all_one_layer.append(one)
-        all_x.append(x)
-
-    
+        for seed in SEEDS:
+            print(f"  seed {seed}")
+            for name in ("0-layer", "size+depth", "x", "wl-undirected", "wl-directed"):
+                mse_val = mse_results.get(f"{aig}|{name}|seed-{seed}", float('nan'))
+                rho = rank_results.get(f"{aig}|{name}|seed-{seed}|rho", float('nan'))
+                tau = rank_results.get(f"{aig}|{name}|seed-{seed}|tau", float('nan'))
+                gwd = regret_results.get(f"{aig}|{name}|seed-{seed}|gwd", float('nan'))
+                
+                print(f"    {name:<10} {rho:>10.4f} {tau:>10.4f} {mse_val:>10.4g} {gwd:>9.4g}")
 
     np.savez("res/predictor_mse.npz", **mse_results)
     np.savez("res/predictor_ranks.npz", **rank_results)
+    np.savez("res/predictor_regret.npz", **regret_results)
     print("\nSaved predictor MSEs to res/predictor_mse.npz")
     print("Saved predictor rank metrics to res/predictor_ranks.npz")
+    print("Saved predictor regret metrics to res/predictor_regret.npz")
 
 
 if __name__ == "__main__":

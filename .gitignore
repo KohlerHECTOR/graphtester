@@ -170,3 +170,4 @@ io/
 res/
 *.aig
 *.npy
+*.sh
