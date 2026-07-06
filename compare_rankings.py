@@ -25,11 +25,12 @@ Kendall tau.
 import pickle
 import numpy as np
 from joblib import Parallel, delayed
-from scipy.stats import kendalltau, spearmanr
+from scipy.stats import kendalltau, spearmanr, weightedtau
 
 from abc_py import AbcInterface
 
 WL_ITERS = 5  # number of message-passing layers for the WL-based predictor
+N_PERMS = 100  # permutations for the per-predictor ranking null distribution
 SEEDS = list(range(10))
 
 
@@ -167,28 +168,6 @@ def nmse(y: np.ndarray, pred: np.ndarray) -> float:
     return float(np.mean((y - pred) ** 2) / max(1.0, np.var(y)))
 
 
-def gap_weighted_discordance(y: np.ndarray, pred: np.ndarray) -> float:
-    """Fraction of the total V* gap mass that ``pred`` misorders.
-
-    A value-weighted Kendall tau: for every pair of states, if ``pred`` ranks them
-    in the opposite order to the true optimal value ``y`` (lower = better), the pair
-    contributes its true value gap ``|y_i - y_j|`` to the numerator. Normalized by the
-    total gap mass over all pairs, giving a number in [0, 1]. Ties in ``pred`` count as
-    half a discordance. This directly captures "how much V* is lost to ranking errors".
-    """
-    n = len(y)
-    num = 0.0
-    den = 0.0
-    for i in range(n):
-        dy = y[i] - y[i + 1 :]
-        dp = pred[i] - pred[i + 1 :]
-        gap = np.abs(dy)
-        den += gap.sum()
-        sign = dy * dp
-        num += gap[sign < 0].sum() + 0.5 * gap[sign == 0].sum()
-    return float(num / den) if den > 0 else 0.0
-
-
 HEADER = f"  {'predictor':<10} {'Spearman':>10} {'Kendall':>10} {'NMSE':>10}"
 
 
@@ -207,28 +186,36 @@ def _process_seed(aig: str, seed: int) -> dict | None:
     zero = zero_layer_prediction(y, counts)
     size_depth = size_depth_prediction(y, counts, depths)
     xfeat = x_feature_prediction(x, y, 1e-8)
-    wl_undir = wl_layer_prediction(load_wl_hashes(aig, seed, False, WL_ITERS), y)
-    wl_dir = wl_layer_prediction(load_wl_hashes(aig, seed, True, WL_ITERS), y)
+    hashes_undir = load_wl_hashes(aig, seed, False, WL_ITERS)
+    hashes_dir = load_wl_hashes(aig, seed, True, WL_ITERS)
+    wl_undir = wl_layer_prediction(hashes_undir, y)
+    wl_dir = wl_layer_prediction(hashes_dir, y)
 
     result = {}
     rng = np.random.default_rng(seed)
-    for name, pred in [
-        ("0-layer", zero),
-        ("size+depth", size_depth),
-        ("x", xfeat),
-        ("wl-undirected", wl_undir),
-        ("wl-directed", wl_dir),
+    for name, pred, pred_func in [
+        ("0-layer",       zero,     lambda yp: zero_layer_prediction(yp, counts)),
+        ("size+depth",    size_depth, lambda yp: size_depth_prediction(yp, counts, depths)),
+        ("x",             xfeat,    lambda yp: x_feature_prediction(x, yp, 1e-8)),
+        ("wl-undirected", wl_undir, lambda yp, h=hashes_undir: wl_layer_prediction(h, yp)),
+        ("wl-directed",   wl_dir,   lambda yp, h=hashes_dir:   wl_layer_prediction(h, yp)),
     ]:
         result[f"{aig}|{name}|seed-{seed}"] = nmse(y, pred)
         rho, tau = rank_metrics(y, pred)
         result[f"{aig}|{name}|seed-{seed}|rho"] = rho
         result[f"{aig}|{name}|seed-{seed}|tau"] = tau
-        result[f"{aig}|{name}|seed-{seed}|gwd"] = gap_weighted_discordance(y, pred)
-        print(result[f"{aig}|{name}|seed-{seed}|gwd"])
-        # for k in REGRET_KS:
-        #     result[f"{aig}|{name}|seed-{seed}|regret-k{k}"] = expected_regret_at_k(
-        #         y, pred, k, REGRET_DRAWS, rng
-        #     )
+        result[f"{aig}|{name}|seed-{seed}|wtau"] = float(weightedtau(y, pred)[0])  # type: ignore[arg-type]
+
+    perm_rhos, perm_taus, perm_wtaus = [], [], []
+    for _ in range(N_PERMS):
+        y_perm = rng.permutation(y)
+        r, t = rank_metrics(y, y_perm)
+        perm_rhos.append(r)
+        perm_taus.append(t)
+        perm_wtaus.append(float(weightedtau(y, y_perm)[0]))  # type: ignore[arg-type]
+    result[f"{aig}|{name}|seed-{seed}|perm-rho"] = np.array(perm_rhos)
+    result[f"{aig}|{name}|seed-{seed}|perm-tau"] = np.array(perm_taus)
+    result[f"{aig}|{name}|seed-{seed}|perm-wtau"] = np.array(perm_wtaus)
     print(f"  done: {aig} seed {seed}")
     return result
 
@@ -250,13 +237,16 @@ def main():
     mse_results: dict = {}
     rank_results: dict = {}
     regret_results: dict = {}
+    perm_rank_results: dict = {}
     for res in results:
         if res is None:
             continue
         for key, val in res.items():
-            if key.endswith("|rho") or key.endswith("|tau"):
+            if "|perm-" in key:
+                perm_rank_results[key] = val
+            elif key.endswith("|rho") or key.endswith("|tau"):
                 rank_results[key] = val
-            elif key.endswith("|gwd") or "|regret-k" in key:
+            elif key.endswith("|wtau") or "|regret-k" in key:
                 regret_results[key] = val
             else:
                 mse_results[key] = val
@@ -270,16 +260,18 @@ def main():
                 mse_val = mse_results.get(f"{aig}|{name}|seed-{seed}", float('nan'))
                 rho = rank_results.get(f"{aig}|{name}|seed-{seed}|rho", float('nan'))
                 tau = rank_results.get(f"{aig}|{name}|seed-{seed}|tau", float('nan'))
-                gwd = regret_results.get(f"{aig}|{name}|seed-{seed}|gwd", float('nan'))
+                wtau = regret_results.get(f"{aig}|{name}|seed-{seed}|wtau", float('nan'))
                 
-                print(f"    {name:<10} {rho:>10.4f} {tau:>10.4f} {mse_val:>10.4g} {gwd:>9.4g}")
+                print(f"    {name:<10} {rho:>10.4f} {tau:>10.4f} {mse_val:>10.4g} {wtau:>9.4g}")
 
     np.savez("res/predictor_mse.npz", **mse_results)
     np.savez("res/predictor_ranks.npz", **rank_results)
     np.savez("res/predictor_regret.npz", **regret_results)
+    np.savez("res/predictor_perm_ranks.npz", **perm_rank_results)
     print("\nSaved predictor MSEs to res/predictor_mse.npz")
     print("Saved predictor rank metrics to res/predictor_ranks.npz")
     print("Saved predictor regret metrics to res/predictor_regret.npz")
+    print("Saved predictor perm rank null distributions to res/predictor_perm_ranks.npz")
 
 
 if __name__ == "__main__":
