@@ -1,6 +1,7 @@
-- [ ] Plot rank correlation of RNDPermut
-- [ ] Investigate large action space
+- [x] Plot rank correlation of RNDPermut
+- [x] Investigate large action space - there it is normal that x feat splits data perfectly since it has n_actions >> 1 
 - [x] Should focus on static datasets for the mlcad benchs.
+- [ ] Add edge attributes.
 - [ ] show that fitting gcn is more costly than mlp for equiv perf.
 - [ ] seems like better estimate of V are hard to predict
 - [ ] plot with more mpnn layers
