@@ -29,8 +29,8 @@ from scipy.stats import kendalltau, spearmanr, weightedtau
 
 from abc_py import AbcInterface
 
-WL_ITERS = 5  # number of message-passing layers for the WL-based predictor
-N_PERMS = 100  # permutations for the per-predictor ranking null distribution
+WL_ITERS = 50  # number of message-passing layers for the WL-based predictor
+N_PERMS = 25  # permutations for the per-predictor ranking null distribution
 SEEDS = list(range(10))
 
 
@@ -44,7 +44,11 @@ def load(aig: str, seed: int):
     # TODO: path should be argument
 
     """Load a dataset for a given seed. Returns (x, y_min) or raises FileNotFoundError."""
-    p =f"dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False/res.npz"
+    if aig == 'C6288':
+        p =f"RES-AIGS/dataset-{aig}-all-actions-False-mc-simu-10-seed-{seed}-rs-False/res.npz"
+    else:
+        p =f"RES-AIGS/dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False/res.npz"
+    
     data = np.load(p)
     x_all = data["x"]
     y_all = data["y"]
@@ -53,7 +57,7 @@ def load(aig: str, seed: int):
 
 def aig_path(aig: str, seed: int, i: int) -> str:
     # TODO: path should be argument
-    return f"dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False/{i}.aig"
+    return f"RES-AIGS/dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False/{i}.aig"
 
 
 def extract_aig(abc):
@@ -111,7 +115,7 @@ def size_depth_prediction(
     return pred
 
 
-def x_feature_prediction(x: np.ndarray, y: np.ndarray, tol: float) -> np.ndarray:
+def x_feature_prediction(x: np.ndarray, y: np.ndarray, tol: float=1e-8) -> np.ndarray:
     """Mean y over all graphs whose x feature vectors agree up to ``tol``.
 
     Like the other baselines, this is a grouping predictor: x is snapped to a grid
@@ -120,7 +124,7 @@ def x_feature_prediction(x: np.ndarray, y: np.ndarray, tol: float) -> np.ndarray
     any model that only sees the x features (at resolution ``tol``) can do.
     """
     pred = np.empty_like(y, dtype=float)
-    snapped = np.round(x / tol)
+    snapped = np.round(x / tol)[:,-5:] #NO ACTIONS HISTORY
     _, inverse = np.unique(snapped, axis=0, return_inverse=True)
     for group in np.unique(inverse):
         mask = inverse == group
@@ -128,14 +132,20 @@ def x_feature_prediction(x: np.ndarray, y: np.ndarray, tol: float) -> np.ndarray
     return pred
 
 
-def load_wl_hashes(aig: str, seed: int, directed: bool, k: int) -> list[str]:
+def load_wl_hashes(aig: str, seed: int, directed: bool, k: int, w_edges: bool = False) -> list[str]:
     """Load precomputed 1-WL graph hashes at iteration ``k`` from the pickle written
     by ``aig_wl_analysis.py`` (``{dataset}_hashes_{undirected|directed}.pkl``).
 
     The pickle holds ``{iteration: [hash_for_graph_0, ...]}`` in graph index order.
+    Set ``w_edges=True`` to load hashes from the weighted-edges variant.
     """
     suffix = "directed" if directed else "undirected"
-    prefix = f"dataset-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False"
+    dataset_prefix = "w_edges_dataset" if w_edges else "dataset"
+    if aig == 'C6288':
+        prefix = f"RES-AIGS/{dataset_prefix}-{aig}-all-actions-False-mc-simu-10-seed-{seed}-rs-False"
+    else:
+        prefix = f"RES-AIGS/{dataset_prefix}-{aig}-all-actions-False-mc-simu-100-seed-{seed}-rs-False"
+
     with open(f"{prefix}_hashes_{suffix}.pkl", "rb") as f:
         hashes = pickle.load(f)
     return hashes[k]
@@ -190,15 +200,21 @@ def _process_seed(aig: str, seed: int) -> dict | None:
     hashes_dir = load_wl_hashes(aig, seed, True, WL_ITERS)
     wl_undir = wl_layer_prediction(hashes_undir, y)
     wl_dir = wl_layer_prediction(hashes_dir, y)
+    hashes_we_undir = load_wl_hashes(aig, seed, False, WL_ITERS, w_edges=True)
+    hashes_we_dir = load_wl_hashes(aig, seed, True, WL_ITERS, w_edges=True)
+    wl_we_undir = wl_layer_prediction(hashes_we_undir, y)
+    wl_we_dir = wl_layer_prediction(hashes_we_dir, y)
 
     result = {}
     rng = np.random.default_rng(seed)
     for name, pred, pred_func in [
-        ("0-layer",       zero,     lambda yp: zero_layer_prediction(yp, counts)),
-        ("size+depth",    size_depth, lambda yp: size_depth_prediction(yp, counts, depths)),
-        ("x",             xfeat,    lambda yp: x_feature_prediction(x, yp, 1e-8)),
-        ("wl-undirected", wl_undir, lambda yp, h=hashes_undir: wl_layer_prediction(h, yp)),
-        ("wl-directed",   wl_dir,   lambda yp, h=hashes_dir:   wl_layer_prediction(h, yp)),
+        ("0-layer",          zero,        lambda yp: zero_layer_prediction(yp, counts)),
+        ("size+depth",       size_depth,  lambda yp: size_depth_prediction(yp, counts, depths)),
+        ("x",                xfeat,       lambda yp: x_feature_prediction(x, yp, 1e-8)),
+        ("wl-undirected",    wl_undir,    lambda yp, h=hashes_undir:    wl_layer_prediction(h, yp)),
+        ("wl-directed",      wl_dir,      lambda yp, h=hashes_dir:      wl_layer_prediction(h, yp)),
+        ("wl-we-undirected", wl_we_undir, lambda yp, h=hashes_we_undir: wl_layer_prediction(h, yp)),
+        ("wl-we-directed",   wl_we_dir,   lambda yp, h=hashes_we_dir:   wl_layer_prediction(h, yp)),
     ]:
         result[f"{aig}|{name}|seed-{seed}"] = nmse(y, pred)
         rho, tau = rank_metrics(y, pred)
@@ -256,7 +272,7 @@ def main():
         print(f"\n{aig}")
         for seed in SEEDS:
             print(f"  seed {seed}")
-            for name in ("0-layer", "size+depth", "x", "wl-undirected", "wl-directed"):
+            for name in ("0-layer", "size+depth", "x", "wl-undirected", "wl-directed", "wl-we-undirected", "wl-we-directed"):
                 mse_val = mse_results.get(f"{aig}|{name}|seed-{seed}", float('nan'))
                 rho = rank_results.get(f"{aig}|{name}|seed-{seed}|rho", float('nan'))
                 tau = rank_results.get(f"{aig}|{name}|seed-{seed}|tau", float('nan'))
@@ -264,14 +280,10 @@ def main():
                 
                 print(f"    {name:<10} {rho:>10.4f} {tau:>10.4f} {mse_val:>10.4g} {wtau:>9.4g}")
 
-    np.savez("res/predictor_mse.npz", **mse_results)
-    np.savez("res/predictor_ranks.npz", **rank_results)
-    np.savez("res/predictor_regret.npz", **regret_results)
-    np.savez("res/predictor_perm_ranks.npz", **perm_rank_results)
-    print("\nSaved predictor MSEs to res/predictor_mse.npz")
-    print("Saved predictor rank metrics to res/predictor_ranks.npz")
-    print("Saved predictor regret metrics to res/predictor_regret.npz")
-    print("Saved predictor perm rank null distributions to res/predictor_perm_ranks.npz")
+    np.savez("RES-DUMMY-PREDICTORS/predictor_mse.npz", **mse_results)
+    np.savez("RES-DUMMY-PREDICTORS/predictor_ranks.npz", **rank_results)
+    np.savez("RES-DUMMY-PREDICTORS/predictor_regret.npz", **regret_results)
+    np.savez("RES-DUMMY-PREDICTORS/predictor_perm_ranks.npz", **perm_rank_results)
 
 
 if __name__ == "__main__":

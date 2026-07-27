@@ -8,7 +8,7 @@
 #SBATCH --time=20:00:00        # Temps d’exécution maximum demande (HH:MM:SS)
 #SBATCH --output=%x_%A_%a.out  # Nom du fichier de sortie contenant l'ID et l'indice
 #SBATCH --error=%x_%A_%a.out   # Nom du fichier d'erreur (ici commun avec la sortie)
-#SBATCH --array=0-22
+#SBATCH --array=0-12
 
 # on se place dans le répertoire de soumission
 cd /lustre/fswork/projects/rech/aes/uma45ed/WL-Express/graphtester/
@@ -26,5 +26,5 @@ set -x
 # Execution du binaire "mon_exe" avec des donnees differentes pour chaque travail
 # La valeur de ${SLURM_ARRAY_TASK_ID} est differente pour chaque travail.
 source wl_env/bin/activate
-chmod +x jobs-graphtester-all-actions/job_$((SLURM_ARRAY_TASK_ID)).sh
-srun bash jobs-graphtester-all-actions/job_$((SLURM_ARRAY_TASK_ID)).sh
+chmod +x jobs-graphtester-w-edges/job_$((SLURM_ARRAY_TASK_ID)).sh
+srun bash jobs-graphtester-w-edges/job_$((SLURM_ARRAY_TASK_ID)).sh

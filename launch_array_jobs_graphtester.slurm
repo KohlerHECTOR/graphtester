@@ -8,7 +8,7 @@
 #SBATCH --time=20:00:00        # Temps d’exécution maximum demande (HH:MM:SS)
 #SBATCH --output=%x_%A_%a.out  # Nom du fichier de sortie contenant l'ID et l'indice
 #SBATCH --error=%x_%A_%a.out   # Nom du fichier d'erreur (ici commun avec la sortie)
-#SBATCH --array=0-102
+#SBATCH --array=0-12
 
 # on se place dans le répertoire de soumission
 cd /lustre/fswork/projects/rech/aes/uma45ed/WL-Express/graphtester/

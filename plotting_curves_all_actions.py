@@ -5,7 +5,7 @@ from matplotlib.patches import Patch
 from scipy.stats import bootstrap
 
 try:
-    _pred_mse = dict(np.load('res/predictor_mse_all_actions.npz'))
+    _pred_mse = dict(np.load('RES-DUMMY-PREDICTORS/predictor_mse_all_actions.npz'))
 except FileNotFoundError:
     _pred_mse = {}
 
@@ -35,19 +35,21 @@ def _draw_predictor_lines(ax, key_prefix, legend=False):
             ax.axhspan(res.confidence_interval.low, res.confidence_interval.high, alpha=0.15, color=color)
 
 
-AIGS = [
-    "i10", "apex1", "dalu", "C1355", "C5315", "C7552",
-    "k2", "bc0"]
 # AIGS = [
-#     "i10", "apex1", "dalu", "C6288", "C1355", "C5315", "C7552",
-#     "k2", "bc0", "mainpla"
+#     "i10", "apex1", "dalu", "C1355", "C5315", "C7552",
+#     "k2", "bc0"
 # ]
+AIGS = [
+    "i10", "apex1", "dalu", "C6288", "C1355", "C5315", "C7552",
+    "k2", "bc0", "mainpla"
+]
 SEEDS = 10
 plt.clf()
 fig, axes = plt.subplots(2, 5, figsize=(20, 8))
 for ax, aig in zip(axes.flat, AIGS):
+    mc = 5 if aig in ('mainpla', 'C6288') else 10
     curves = np.stack([
-        np.load(f'dataset-{aig}-all-actions-True-mc-simu-10-seed-{s}-rs-False_curve_undirected.npy')
+        np.load(f'RES-AIGS/dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_curve_undirected.npy')
         for s in range(SEEDS)
     ], axis=0)
     m = np.mean(curves, axis=0)
@@ -62,7 +64,7 @@ for ax, aig in zip(axes.flat, AIGS):
     ax.fill_between(np.arange(n_steps_c), ci_low_c, ci_high_c, alpha=0.2)
 
     curves = np.stack([
-        np.load(f'dataset-{aig}-all-actions-True-mc-simu-10-seed-{s}-rs-False_curve_directed.npy')
+        np.load(f'RES-AIGS/dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_curve_directed.npy')
         for s in range(SEEDS)
     ], axis=0)
     m = np.mean(curves, axis=0)
@@ -78,7 +80,7 @@ for ax, aig in zip(axes.flat, AIGS):
 
     # Combine all seeds and permutations: shape (10 * n_perms, n_steps)
     a = np.concatenate([
-        np.load(f'dataset-{aig}-all-actions-True-mc-simu-10-seed-{s}-rs-False_perm_curves_undirected.npy')
+        np.load(f'RES-AIGS/dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_perm_curves_undirected.npy')
         for s in range(SEEDS)
     ], axis=0)
     m = np.mean(a, axis=0)
@@ -95,7 +97,7 @@ for ax, aig in zip(axes.flat, AIGS):
     ax.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='red')
 
     a = np.concatenate([
-        np.load(f'dataset-{aig}-all-actions-True-mc-simu-10-seed-{s}-rs-False_perm_curves_directed.npy')
+        np.load(f'RES-AIGS/dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_perm_curves_directed.npy')
         for s in range(SEEDS)
     ], axis=0)
     m = np.mean(a, axis=0)
@@ -110,9 +112,71 @@ for ax, aig in zip(axes.flat, AIGS):
 
     ax.plot(m, label=r'$\mathcal{G}^{\rightarrow} \rightarrow \mathrm{RNDPermut}(\hat{V}^*(\mathcal{G}))$', linewidth=2.5, color='tab:red')
     ax.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='tab:red')
+
+    # --- w_edges variants (dashed) ---
+    curves = np.stack([
+        np.load(f'RES-AIGS/w_edges_dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_curve_undirected.npy')
+        for s in range(SEEDS)
+    ], axis=0)
+    m = np.mean(curves, axis=0)
+    n_steps_c = curves.shape[1]
+    ci_low_c = np.empty(n_steps_c)
+    ci_high_c = np.empty(n_steps_c)
+    for i in range(n_steps_c):
+        res = bootstrap((curves[:, i],), np.mean, confidence_level=0.95, method='percentile')
+        ci_low_c[i] = res.confidence_interval.low
+        ci_high_c[i] = res.confidence_interval.high
+    ax.plot(m, label=r'$\mathcal{G}^{e} \rightarrow \hat{V}^*(\mathcal{G})$', linewidth=2.5, linestyle='--')
+    ax.fill_between(np.arange(n_steps_c), ci_low_c, ci_high_c, alpha=0.2)
+    if aig != "mainpla":
+        curves = np.stack([
+            np.load(f'RES-AIGS/w_edges_dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_curve_directed.npy')
+            for s in range(SEEDS)
+        ], axis=0)
+        m = np.mean(curves, axis=0)
+        n_steps_c = curves.shape[1]
+        ci_low_c = np.empty(n_steps_c)
+        ci_high_c = np.empty(n_steps_c)
+        for i in range(n_steps_c):
+            res = bootstrap((curves[:, i],), np.mean, confidence_level=0.95, method='percentile')
+            ci_low_c[i] = res.confidence_interval.low
+            ci_high_c[i] = res.confidence_interval.high
+        ax.plot(m, label=r'$\mathcal{G}^{\rightarrow e} \rightarrow \hat{V}^*(\mathcal{G})$', linewidth=2.5, linestyle='--', color='blue')
+        ax.fill_between(np.arange(n_steps_c), ci_low_c, ci_high_c, alpha=0.2, color='blue')
+
+    a = np.concatenate([
+        np.load(f'RES-AIGS/w_edges_dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_perm_curves_undirected.npy')
+        for s in range(SEEDS)
+    ], axis=0)
+    m = np.mean(a, axis=0)
+    n_steps = a.shape[1]
+    ci_low = np.empty(n_steps)
+    ci_high = np.empty(n_steps)
+    for i in range(n_steps):
+        res = bootstrap((a[:, i],), np.mean, confidence_level=0.95, method='percentile')
+        ci_low[i] = res.confidence_interval.low
+        ci_high[i] = res.confidence_interval.high
+    ax.plot(m, color='red', label=r'$\mathcal{G}^{e} \rightarrow \mathrm{RNDPermut}(\hat{V}^*(\mathcal{G}))$', linewidth=2.5, linestyle='--')
+    ax.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='red')
+    if aig != "mainpla":
+        a = np.concatenate([
+            np.load(f'RES-AIGS/w_edges_dataset-{aig}-all-actions-True-mc-simu-{mc}-seed-{s}-rs-False_perm_curves_directed.npy')
+            for s in range(SEEDS)
+        ], axis=0)
+        m = np.mean(a, axis=0)
+        n_steps = a.shape[1]
+        ci_low = np.empty(n_steps)
+        ci_high = np.empty(n_steps)
+        for i in range(n_steps):
+            res = bootstrap((a[:, i],), np.mean, confidence_level=0.95, method='percentile')
+            ci_low[i] = res.confidence_interval.low
+            ci_high[i] = res.confidence_interval.high
+        ax.plot(m, label=r'$\mathcal{G}^{\rightarrow e} \rightarrow \mathrm{RNDPermut}(\hat{V}^*(\mathcal{G}))$', linewidth=2.5, linestyle='--', color='tab:red')
+        ax.fill_between(np.arange(n_steps), ci_low, ci_high, alpha=0.2, color='tab:red')
+
     _draw_predictor_lines(ax, aig, legend=False)
     ax.set_yscale('log')
-    ax.set_xticks([0, 1, 2, 3, 4],['1', '2', '3', '4', '5'], fontsize=14)
+    # ax.set_xticks(list(range(1, 50+1)),[str(e) for e in range(1, 50 + 1)], fontsize=14)
     ax.set_xlabel('MPNN layers', fontsize=15)
     ax.set_title(aig, fontsize=14)
     ax.tick_params(axis='both', labelsize=14)
@@ -123,7 +187,7 @@ _draw_predictor_lines(axes[0, 0], AIGS[0], legend=True)
 handles, labels = axes[0, 0].get_legend_handles_labels()
 fig.legend(
     handles, labels, fontsize=18,
-    loc='center', bbox_to_anchor=(0.3, -0.05), ncol=5,
+    loc='center', bbox_to_anchor=(0.5, -0.05), ncol=4,
 )
 
 for ax in axes[:, 0]:
@@ -135,33 +199,35 @@ plt.clf()
 
 # --- Bar plot of ranking metrics per AIG ---
 try:
-    _ranks = dict(np.load('res/predictor_ranks_all_actions.npz'))
+    _ranks = dict(np.load('RES-DUMMY-PREDICTORS/predictor_ranks_all_actions.npz'))
 except FileNotFoundError:
     _ranks = {}
 
 try:
-    _regret = dict(np.load('res/predictor_regret_all_actions.npz'))
+    _regret = dict(np.load('RES-DUMMY-PREDICTORS/predictor_regret_all_actions.npz'))
 except FileNotFoundError:
     _regret = {}
 
 try:
-    _perm_ranks = dict(np.load('res/predictor_perm_ranks_all_actions.npz', allow_pickle=True))
+    _perm_ranks = dict(np.load('RES-DUMMY-PREDICTORS/predictor_perm_ranks_all_actions.npz', allow_pickle=True))
 except FileNotFoundError:
     _perm_ranks = {}
 
 if _ranks:
-    PREDICTORS = ['0-layer', 'size+depth', 'x', 'wl-undirected', 'wl-directed']
+    PREDICTORS = ['0-layer', 'size+depth', 'x', 'wl-undirected', 'wl-directed', 'wl-we-undirected', 'wl-we-directed']
     PRED_LABELS = [
         r'$|\mathcal{V}_\mathcal{G}| \rightarrow \hat{V}^*$',
         r'$(|\mathcal{V}|, d)_\mathcal{G} \rightarrow \hat{V}^*$',
         r'$x_\mathcal{G} \rightarrow \hat{V}^*$',
         r'$\mathcal{G} \rightarrow \hat{V}^*(\mathcal{G})$',
         r'$\mathcal{G}^{\rightarrow} \rightarrow \hat{V}^*(\mathcal{G})$',
+        r'$\mathcal{G}^{e} \rightarrow \hat{V}^*(\mathcal{G})$',
+        r'$\mathcal{G}^{\rightarrow e} \rightarrow \hat{V}^*(\mathcal{G})$',
     ]
     x_pos = np.arange(len(PREDICTORS))
     bar_width = 0.25
 
-    fig_bar, axes_bar = plt.subplots(2, 5, figsize=(22, 8), sharey=True)
+    fig_bar, axes_bar = plt.subplots(2, 5, figsize=(30, 8), sharey=True)
     for ax, aig in zip(axes_bar.flat, AIGS):
         rho_means, rho_errs, tau_means, tau_errs, wtau_means, wtau_errs = [], [], [], [], [], []
         for p in PREDICTORS:
